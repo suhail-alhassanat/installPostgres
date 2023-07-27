@@ -1,0 +1,77 @@
+---
+- hosts: all
+  become: true
+
+  pre_tasks:
+    - name: install required packages for postgresql
+      package:
+        name:
+          - zlib-devel
+          - zlib
+          - readline-devel
+          - readline
+        state: present
+
+  tasks:
+    - name: create postgres user
+      user:
+        name: postgres
+        createhome: yes
+        home: /home/postgres
+    
+
+    - name: download postgresql from source and unarchive it
+      unarchive:
+        src: https://ftp.postgresql.org/pub/source/v14.8/postgresql-14.8.tar.gz
+        dest: /home/postgres
+        remote_src: yes
+        creates: /home/postgres/postgresql-14.8
+
+    - name: run the configure script
+      command: ./configure --prefix=/home/postgres/pgsql
+      args:
+        chdir: /home/postgres/postgresql-14.8
+
+    - name: run the make command
+      command: make
+      args:
+        chdir: /home/postgres/postgresql-14.8
+        creates: /home/postgres/pgsql/bin/pg_ctl
+
+    - name: run the make install command
+      command: make install
+      args:
+        chdir: /home/postgres/postgresql-14.8
+        creates: /home/postgres/pgsql/bin/pg_ctl
+
+    - name: create a directory for postgresql data
+      file: 
+        path: /home/postgres/pgdata
+        state: directory
+        owner: postgres
+        
+    - name: initializing postgresql data
+      become: yes
+      become_user: postgres
+      command: ./initdb -E utf8 -D /home/postgres/pgdata
+      args:
+        chdir: /home/postgres/pgsql/bin
+        creates: /home/postgres/pgdata/postgresql.conf
+    
+    - name: copy postgresql service file to target machines
+      copy:
+        src: postgresql.service
+        dest: /etc/systemd/system/postgresql.service
+      notify:
+        - reload_systemctl_daemon
+        - start_postgresql
+
+  handlers:
+    - name: reload_systemctl_daemon
+      command: systemctl daemon-reload
+
+    - name: start_postgresql
+      service:
+        name: postgresql
+        state: started
+        enabled: yes
